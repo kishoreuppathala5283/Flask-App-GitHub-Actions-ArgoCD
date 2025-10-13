@@ -37,14 +37,14 @@ jobs:
             set -e
  
             # Clone repo if missing
-            if [ ! -d "/home/ubuntu/python_project" ]; then
+            if [ ! -d "/home/ubuntu/Flask-App-GitHub-Actions-ArgoCD" ]; then
               cd /home/ubuntu
               # Use SSH for GitHub repo
               git clone https://github.com/kishoreuppathala5283/Flask-App-GitHub-Actions-ArgoCD.git
               cd python_project
               python3 -m venv venv
             else
-              cd /home/ubuntu/python_project
+              cd /home/ubuntu/Flask-App-GitHub-Actions-ArgoCD
             fi
  
             # Force sync with GitHub via SSH
