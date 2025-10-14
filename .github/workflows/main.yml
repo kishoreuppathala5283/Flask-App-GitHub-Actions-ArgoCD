@@ -36,14 +36,14 @@ jobs:
       - name: Deploy to EC2 and run container
         uses: appleboy/ssh-action@v0.1.10
         with:
-          host: ${{ EC2_HOST }}
+          host: ${{ secrets.EC2_HOST }}
           username: ubuntu
-          key: ${{ EC2_SSH_KEY }}
+          key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             set -e
 
-            export AWS_ACCESS_KEY_ID=${{ EC2_AWS_ACCESS_KEY_ID }}
-            export AWS_SECRET_ACCESS_KEY=${{ EC2_AWS_SECRET_ACCESS_KEY }}
+            export AWS_ACCESS_KEY_ID=${{ secrets.EC2_AWS_ACCESS_KEY_ID }}
+            export AWS_SECRET_ACCESS_KEY=${{ secrets.EC2_AWS_SECRET_ACCESS_KEY }}
             export AWS_DEFAULT_REGION=${{ env.AWS_REGION }}
             export ECR_REGISTRY=${{ env.ECR_REGISTRY }}
             export ECR_REPOSITORY=${{ env.ECR_REPOSITORY }}
