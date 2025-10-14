@@ -1,4 +1,4 @@
-name: Build and Deploy Flask App to EC2
+name: CI/CD Pipeline - Flask App with AWS ECR + EC2
 
 on:
   push:
@@ -12,44 +12,37 @@ env:
   IMAGE_TAG: latest
 
 jobs:
-  build:
-    name: Build and Push to ECR
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout repo
-      - name: Checkout source
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2️⃣ Configure AWS credentials
-      - name: Configure AWS Credentials
+      # --- AWS Credentials ---
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # 3️⃣ Login to ECR
-      - name: Login to Amazon ECR
-        uses: aws-actions/amazon-ecr-login@v2
-
-      # 4️⃣ Build and push Docker image
-      - name: Build, Tag, and Push image to ECR
+      # --- Docker Build & Push to ECR ---
+      - name: Build, tag, and push Docker image to ECR
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          echo "🔧 Logging in to ECR..."
+          aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}
 
-  deploy:
-    name: Deploy on EC2
-    runs-on: ubuntu-latest
-    needs: build
+          echo "🐳 Building Docker image..."
+          docker build -t ${{ env.ECR_REPOSITORY }} .
 
-    steps:
-      # 1️⃣ Checkout repo
-      - name: Checkout source
-        uses: actions/checkout@v4
+          echo "🏷️ Tagging image..."
+          docker tag ${{ env.ECR_REPOSITORY }}:latest ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
 
-      # 2️⃣ Deploy to EC2 via SSH
+          echo "📤 Pushing image to ECR..."
+          docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+
+      # --- EC2 Deployment ---
       - name: SSH into EC2 and deploy Docker container
         uses: appleboy/ssh-action@v0.1.10
         with:
@@ -67,52 +60,58 @@ jobs:
 
             echo "🚀 Starting EC2 deployment..."
 
-            # Install python3-venv if missing
-            if ! dpkg -s python3-venv >/dev/null 2>&1; then
-              echo "Installing python3-venv..."
-              sudo apt-get update -y
-              sudo apt-get install -y python3-venv
-            fi
+            # --- System setup ---
+            echo "🔧 Installing required dependencies..."
+            sudo apt-get update -y
+            sudo apt-get install -y python3 python3-venv python3-pip git docker.io
 
-            # Clone repo if missing
+            # --- Clone or update repo ---
             if [ ! -d "/home/ubuntu/Flask-App-GitHub-Actions-ArgoCD" ]; then
               cd /home/ubuntu
               git clone https://github.com/kishoreuppathala5283/Flask-App-GitHub-Actions-ArgoCD.git
-              cd Flask-App-GitHub-Actions-ArgoCD
-              python3 -m venv venv
-            else
-              cd /home/ubuntu/Flask-App-GitHub-Actions-ArgoCD
             fi
 
-            # Force sync with GitHub
+            cd /home/ubuntu/Flask-App-GitHub-Actions-ArgoCD
+
+            echo "🔄 Syncing with latest GitHub code..."
             git fetch origin
             git reset --hard origin/main
 
-            # Activate venv and install dependencies
-            if [ ! -d "venv" ]; then
-              python3 -m venv venv
-            fi
+            # --- Python Virtual Environment ---
+            echo "🐍 Setting up Python virtual environment..."
+            rm -rf venv
+            python3 -m venv venv
             source venv/bin/activate
             pip install --upgrade pip
             pip install -r requirements.txt
 
-            # --- Docker & ECR deployment ---
-            echo "Logging in to ECR..."
+            # --- Docker Deployment ---
+            echo "🔐 Logging in to ECR..."
             aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | sudo docker login --username AWS --password-stdin ${ECR_REGISTRY}
 
-            echo "Stopping old container (if any)..."
+            echo "🛑 Stopping old container (if any)..."
             if [ "$(sudo docker ps -q -f name=flaskapp)" ]; then
               sudo docker stop flaskapp
               sudo docker rm flaskapp
             fi
 
-            echo "Pulling latest image from ECR..."
+            echo "📦 Pulling latest image from ECR..."
             sudo docker pull ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
 
-            echo "Starting new container..."
+            echo "🚀 Starting new container..."
             sudo docker run -d \
               --name flaskapp \
               -p 5000:5000 \
               ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
 
-            echo "✅ Deployment completed successfully!"
+            # --- Optional health check ---
+            echo "🔍 Verifying Flask app is running..."
+            sleep 5
+            if curl -s http://localhost:5000 | grep -q "Flask"; then
+              echo "✅ Flask app is running successfully!"
+            else
+              echo "❌ Flask app failed to start."
+              exit 1
+            fi
+
+            echo "🎉 Deployment completed successfully!"
