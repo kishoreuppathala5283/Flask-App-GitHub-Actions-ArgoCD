@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Deploy to EC2 and run container
+      - name: 🚀 Deploy to EC2 and run container
         uses: appleboy/ssh-action@v0.1.10
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -35,17 +35,19 @@ jobs:
 
             echo "🚀 Starting EC2 deployment..."
 
+            # Clone or update repo
             if [ ! -d "/home/ubuntu/Flask-App-GitHub-Actions-ArgoCD" ]; then
               cd /home/ubuntu
               git clone https://github.com/kishoreuppathala5283/Flask-App-GitHub-Actions-ArgoCD.git
               cd Flask-App-GitHub-Actions-ArgoCD
             else
               cd /home/ubuntu/Flask-App-GitHub-Actions-ArgoCD
-              echo "Updating existing repo..."
+              echo "🔄 Updating existing repo..."
               git fetch origin
               git reset --hard origin/main
             fi
 
+            # Setup Python environment
             if [ ! -d "venv" ]; then
               python3 -m venv venv
             fi
@@ -53,22 +55,35 @@ jobs:
             pip install --upgrade pip
             pip install -r requirements.txt
 
-            echo "Logging in to ECR..."
+            echo "🔐 Logging in to ECR..."
             aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | sudo docker login --username AWS --password-stdin ${ECR_REGISTRY}
 
-            echo "Stopping old container (if any)..."
+            echo "🛑 Stopping and cleaning old container (if any)..."
+            # Stop if running
             if [ "$(sudo docker ps -q -f name=flaskapp)" ]; then
               sudo docker stop flaskapp
+            fi
+            # Remove if exists (stopped container)
+            if [ "$(sudo docker ps -a -q -f name=flaskapp)" ]; then
               sudo docker rm flaskapp
             fi
 
-            echo "Pulling latest image from ECR..."
+            echo "📦 Pulling latest image from ECR..."
             sudo docker pull ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
 
-            echo "Starting new container..."
+            echo "🚀 Starting new container..."
             sudo docker run -d \
               --name flaskapp \
               -p 5000:5000 \
+              --restart=always \
               ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
 
-            echo "✅ Deployment completed successfully!"
+            echo "🔍 Checking Flask app health..."
+            sleep 5
+            if curl -s http://localhost:5000 > /dev/null; then
+              echo "✅ Flask app deployed and running successfully!"
+            else
+              echo "❌ Flask app failed to start. Fetching logs..."
+              sudo docker logs flaskapp || true
+              exit 1
+            fi
