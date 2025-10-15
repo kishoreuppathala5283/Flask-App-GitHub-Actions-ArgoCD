@@ -1,23 +1,30 @@
-name: Deploy Flask App to EC2
+name: 🚀 Manual Deploy Flask App to EC2
 
 on:
-  workflow_run:
-    workflows: ["Build and Push to ECR"]
-    types:
-      - completed
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Enter the Docker image tag to deploy (e.g., latest or v1.0.2)"
+        required: true
+        default: "latest"
 
 env:
   AWS_REGION: ap-south-1
   ECR_REGISTRY: 586636666108.dkr.ecr.ap-south-1.amazonaws.com
   ECR_REPOSITORY: flask-app
-  IMAGE_TAG: latest
 
 jobs:
   deploy:
+    name: Deploy to EC2
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: read    # only read access to repo
+      deployments: write  # allow deploy logs
+      id-token: write     # required for AWS OIDC auth if needed
+
     steps:
-      - name: 🚀 Deploy to EC2 and run container
+      - name: 🚀 Connect to EC2 and deploy container
         uses: appleboy/ssh-action@v0.1.10
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -31,48 +38,38 @@ jobs:
             export AWS_DEFAULT_REGION=${{ env.AWS_REGION }}
             export ECR_REGISTRY=${{ env.ECR_REGISTRY }}
             export ECR_REPOSITORY=${{ env.ECR_REPOSITORY }}
-            export IMAGE_TAG=${{ env.IMAGE_TAG }}
+            export IMAGE_TAG=${{ github.event.inputs.image_tag }}
 
-            echo "🚀 Starting EC2 deployment..."
+            echo "🚀 Starting EC2 manual deployment..."
+            echo "📦 Deploying image: ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
 
-            # === 1️⃣ Update or clone repo ===
+            # === 1️⃣ Update project ===
             if [ ! -d "/home/ubuntu/Flask-App-GitHub-Actions-ArgoCD" ]; then
               cd /home/ubuntu
               git clone https://github.com/kishoreuppathala5283/Flask-App-GitHub-Actions-ArgoCD.git
               cd Flask-App-GitHub-Actions-ArgoCD
             else
               cd /home/ubuntu/Flask-App-GitHub-Actions-ArgoCD
-              echo "🔄 Updating existing repo..."
+              echo "🔄 Updating repo..."
               git fetch origin
               git reset --hard origin/main
             fi
 
-            # === 2️⃣ Setup Python environment ===
-            if [ ! -d "venv" ]; then
-              python3 -m venv venv
-            fi
-            source venv/bin/activate
-            pip install --upgrade pip
-            pip install -r requirements.txt
-
-            # === 3️⃣ Log in to ECR ===
+            # === 2️⃣ ECR login ===
             echo "🔐 Logging in to ECR..."
-            aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | sudo docker login --username AWS --password-stdin ${ECR_REGISTRY}
+            aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | \
+              sudo docker login --username AWS --password-stdin ${ECR_REGISTRY}
 
-            # === 4️⃣ Stop and remove old container ===
-            echo "🛑 Stopping and cleaning old container (if any)..."
+            # === 3️⃣ Stop & clean old container ===
+            echo "🛑 Stopping old container..."
             sudo docker stop flaskapp || true
             sudo docker rm flaskapp || true
-
-            # === 5️⃣ Remove old images to avoid caching issues ===
-            echo "🧹 Cleaning up old Docker images..."
             sudo docker image prune -a -f || true
 
-            # === 6️⃣ Pull latest image ===
-            echo "📦 Pulling latest image from ECR..."
+            # === 4️⃣ Pull and run ===
+            echo "📦 Pulling ${IMAGE_TAG}..."
             sudo docker pull ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
 
-            # === 7️⃣ Run new container ===
             echo "🚀 Starting new container..."
             sudo docker run -d \
               --name flaskapp \
@@ -80,15 +77,15 @@ jobs:
               --restart=always \
               ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
 
-            # === 8️⃣ Health check ===
+            # === 5️⃣ Health check ===
             echo "🔍 Checking Flask app health..."
             sleep 5
             if curl -s http://localhost:5000 > /dev/null; then
-              echo "✅ Flask app deployed and running successfully!"
+              echo "✅ Flask app deployed successfully!"
             else
-              echo "❌ Flask app failed to start. Fetching logs..."
+              echo "❌ Flask app failed to start. Logs below:"
               sudo docker logs flaskapp || true
               exit 1
             fi
 
-            echo "🎯 Deployment finished successfully!"
+            echo "🎯 Manual Deployment finished successfully!"
