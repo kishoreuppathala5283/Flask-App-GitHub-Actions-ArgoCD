@@ -35,7 +35,7 @@ jobs:
 
             echo "🚀 Starting EC2 deployment..."
 
-            # Clone or update repo
+            # === 1️⃣ Update or clone repo ===
             if [ ! -d "/home/ubuntu/Flask-App-GitHub-Actions-ArgoCD" ]; then
               cd /home/ubuntu
               git clone https://github.com/kishoreuppathala5283/Flask-App-GitHub-Actions-ArgoCD.git
@@ -47,7 +47,7 @@ jobs:
               git reset --hard origin/main
             fi
 
-            # Setup Python environment
+            # === 2️⃣ Setup Python environment ===
             if [ ! -d "venv" ]; then
               python3 -m venv venv
             fi
@@ -55,22 +55,24 @@ jobs:
             pip install --upgrade pip
             pip install -r requirements.txt
 
+            # === 3️⃣ Log in to ECR ===
             echo "🔐 Logging in to ECR..."
             aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | sudo docker login --username AWS --password-stdin ${ECR_REGISTRY}
 
+            # === 4️⃣ Stop and remove old container ===
             echo "🛑 Stopping and cleaning old container (if any)..."
-            # Stop if running
-            if [ "$(sudo docker ps -q -f name=flaskapp)" ]; then
-              sudo docker stop flaskapp
-            fi
-            # Remove if exists (stopped container)
-            if [ "$(sudo docker ps -a -q -f name=flaskapp)" ]; then
-              sudo docker rm flaskapp
-            fi
+            sudo docker stop flaskapp || true
+            sudo docker rm flaskapp || true
 
+            # === 5️⃣ Remove old images to avoid caching issues ===
+            echo "🧹 Cleaning up old Docker images..."
+            sudo docker image prune -a -f || true
+
+            # === 6️⃣ Pull latest image ===
             echo "📦 Pulling latest image from ECR..."
             sudo docker pull ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
 
+            # === 7️⃣ Run new container ===
             echo "🚀 Starting new container..."
             sudo docker run -d \
               --name flaskapp \
@@ -78,6 +80,7 @@ jobs:
               --restart=always \
               ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
 
+            # === 8️⃣ Health check ===
             echo "🔍 Checking Flask app health..."
             sleep 5
             if curl -s http://localhost:5000 > /dev/null; then
@@ -87,3 +90,5 @@ jobs:
               sudo docker logs flaskapp || true
               exit 1
             fi
+
+            echo "🎯 Deployment finished successfully!"
